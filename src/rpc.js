@@ -67,22 +67,33 @@ function workspaceTitle(dir) {
 }
 
 /**
- * 把「迁移过来的目录」登记成 dsh 工作区。
+ * 把「迁移过来的目录」登记成 dsh 工作区，并把会话**挂进**该工作区。
  *
- * 为什么需要：会话归组靠工作区注册表（`ctx.workspaceRegistry`）里的记录去匹配会话头的
- * `cwd`——迁移只写会话日志、不登记工作区，于是所有迁来的会话都掉进「未分组」（用户实报）。
- * `registry.create(path, title)` 要求 path 是**存在的目录**并自动去重，所以这里逐个试、
- * 逐个报结果（目录不存在/服务缺席都如实返回，不假装成功）。
- * @param {object} registry - `ctx.workspaceRegistry`（缺席时返回 ok:false）。
- * @param {string[]} dirs - 目录列表。
+ * 两件事缺一不可 —— 只做第一件就是「迁移完会话还在『未分组』」（用户实报）：
+ *
+ * ① `registry.create(path, title)` 只建一个**空**工作区。会话归组靠的是工作区记录里的
+ *    `sessionIds`，**不是**按会话头的 cwd 现算：内核只在工作区域**首次**初始化时跑一遍
+ *    `bootstrap()` 按 cwd 自动归组（`dsh-workspace/lib/index.js` 的 `if (!state.initialized)`
+ *    分支），此后新建的会话必须显式 `attachSession`。所以「建了工作区」≠「会话进去了」。
+ * ② `workspace.attachSession(sessionId)` 才把会话挂进去，它会读该会话头的 cwd 做校验
+ *    （cwd 必须能 realpath 且等于工作区路径），所以目录没了的会话挂不上 —— 那是**跳过**，
+ *    不是失败。
+ *
+ * `create` 按 canonical path 去重（同路径重复调用返回既有实体、不改标题），
+ * `attachSession` 本身也是幂等的，所以整个动作可以反复点。
+ *
+ * @param {object} registry - `ctx.workspaceRegistry`（缺席时逐条返回 ok:false）。
+ * @param {Array<{directory: string, sessionIds?: string[]}>} groups - 目录 + 要挂进去的会话 id。
  */
-async function ensureWorkspaces(registry, dirs) {
+async function ensureWorkspaces(registry, groups) {
   const out = []
-  for (const dir of dirs) {
+  for (const group of groups) {
+    const dir = typeof group === 'string' ? group : group?.directory
+    const sessionIds = typeof group === 'string' ? [] : (Array.isArray(group?.sessionIds) ? group.sessionIds : [])
     if (typeof dir !== 'string' || dir === '') continue
-    // 目录已不存在：**不是失败**，是「没什么可登记的」——登记进工作区也没意义（注册表要求
-    // 目录真实存在），而这些会话会继续留在「未分组」。按 skipped 报，页面用灰字列出，
-    // 不再每次登记都刷一堆 ENOENT 红字。
+    // 目录已不存在：**不是失败**，是「没什么可登记的」——注册表要求目录真实存在，
+    // attachSession 也会校验会话头 cwd 能 realpath，而这些会话会继续留在「未分组」。
+    // 按 skipped 报，页面用灰字列出，不再每次登记都刷一堆 ENOENT 红字。
     if (!existsSync(dir)) {
       out.push({ directory: dir, ok: false, skipped: true, reason: '目录已不存在（会话将留在「未分组」）' })
       continue
@@ -93,12 +104,40 @@ async function ensureWorkspaces(registry, dirs) {
     }
     try {
       const workspace = await registry.create(dir, workspaceTitle(dir))
-      out.push({ directory: dir, ok: true, id: workspace?.id ?? null, title: workspace?.title ?? workspaceTitle(dir) })
+      const attachFailed = []
+      let attached = 0
+      for (const sessionId of sessionIds) {
+        if (typeof sessionId !== 'string' || sessionId === '') continue
+        try {
+          await workspace.attachSession(sessionId)
+          attached += 1
+        } catch (err) {
+          attachFailed.push({ sessionId, error: err instanceof Error ? err.message : String(err) })
+        }
+      }
+      out.push({
+        directory: dir,
+        ok: true,
+        id: workspace?.id ?? null,
+        title: workspace?.title ?? workspaceTitle(dir),
+        attached,
+        attachFailed,
+      })
     } catch (err) {
       out.push({ directory: dir, ok: false, error: err instanceof Error ? err.message : String(err) })
     }
   }
   return out
+}
+
+/** 把请求体里的 groups 归一化成 `[{directory, sessionIds}]`；兼容旧的 `directories: string[]`。 */
+function pickGroups(body) {
+  const raw = Array.isArray(body.groups) ? body.groups : Array.isArray(body.directories) ? body.directories : []
+  return raw
+    .map((entry) => (typeof entry === 'string'
+      ? { directory: entry, sessionIds: [] }
+      : { directory: entry?.directory, sessionIds: Array.isArray(entry?.sessionIds) ? entry.sessionIds.map(String) : [] }))
+    .filter((group) => typeof group.directory === 'string' && group.directory !== '')
 }
 
 /**
@@ -125,10 +164,9 @@ export function createApiHandler(resolved, deps = {}) {
         return sendJson(res, 200, await migrate({ ...resolved, ...pickMigrate(await readJson(req)) }))
       }
       if (path === `${API_PREFIX}/workspaces`) {
-        const body = await readJson(req)
-        const dirs = Array.isArray(body.directories) ? body.directories.map(String).filter(Boolean) : []
-        if (dirs.length === 0) return sendJson(res, 400, { ok: false, error: 'workspaces 需要 directories' })
-        const results = await ensureWorkspaces(deps.workspaceRegistry, dirs)
+        const groups = pickGroups(await readJson(req))
+        if (groups.length === 0) return sendJson(res, 400, { ok: false, error: 'workspaces 需要 groups（或 directories）' })
+        const results = await ensureWorkspaces(deps.workspaceRegistry, groups)
         // 请求本身成功即 ok:true；每个目录的成败在 results[] 里如实给出
         // （客户端把顶层 ok:false 当硬错误会吞掉逐条结果，页面就没法显示「哪些失败」）。
         return sendJson(res, 200, { ok: true, results })

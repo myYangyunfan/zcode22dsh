@@ -206,7 +206,7 @@ test('verify：产物路径存在/缺失两种结果都走 200 且带 ok 字段'
   }
 })
 
-test('workspaces：登记真实目录，目录已不存在 → skipped（不调注册表），真失败 → error', async () => {
+test('workspaces：登记真实目录 + 把会话挂进工作区，目录没了 → skipped（不碰注册表）', async () => {
   // 注册表要求目录真实存在，所以成功路径必须用**真实临时目录**（曾经的用例拿
   // 'C:/a/proj-a' 这种假路径当成功样例，一旦加上存在性预检就会全线变 skipped）。
   const root = mkdtempSync(join(tmpdir(), 'zcode-ws-'))
@@ -216,22 +216,47 @@ test('workspaces：登记真实目录，目录已不存在 → skipped（不调�
   mkdirSync(realB)
   const gone = join(root, 'deleted-long-ago')
 
-  const calls = []
+  const creates = []
+  const attaches = []
   const registry = {
     async create(dir, title) {
-      calls.push({ dir, title })
+      creates.push({ dir, title })
       if (dir.includes('boom')) throw new Error('目录不存在')
-      return { id: 'ws-' + title, title }
+      return {
+        id: 'ws-' + title,
+        title,
+        // 只有挂上去的会话才会出现在工作区里 —— 光 create 出来的是**空**工作区
+        // （用户实报「迁移后也没到工作区」的根因）。
+        async attachSession(sessionId) {
+          attaches.push({ dir, sessionId })
+          if (sessionId.includes('bad')) throw new Error(`会话头的 cwd 已失效`)
+        },
+      }
     },
   }
   const handler = createApiHandler({ dbPath: 'x', dshRoot: 'y' }, { workspaceRegistry: registry })
 
-  const ok = await call(handler, { path: `${API_PREFIX}/workspaces`, body: { directories: [realA, realB, gone] } })
+  const ok = await call(handler, {
+    path: `${API_PREFIX}/workspaces`,
+    body: {
+      groups: [
+        { directory: realA, sessionIds: ['zcode-a1', 'zcode-bad', 'zcode-a2'] },
+        { directory: realB, sessionIds: ['zcode-b1'] },
+        gone,
+      ],
+    },
+  })
   assert.equal(ok.status, 200)
   assert.equal(ok.body.ok, true, '请求成功即 ok:true，逐条成败在 results 里')
-  assert.deepEqual(calls, [{ dir: realA, title: 'proj-a' }, { dir: realB, title: 'proj-boom' }], '标题取末级目录名')
+  assert.deepEqual(creates, [{ dir: realA, title: 'proj-a' }, { dir: realB, title: 'proj-boom' }], '标题取末级目录名')
+  // 每个会话都要试着挂进它目录的工作区；proj-boom 的 create 就失败了，所以它的会话不该被 attach。
+  assert.deepEqual(attaches.map((a) => a.sessionId), ['zcode-a1', 'zcode-bad', 'zcode-a2'])
   assert.equal(ok.body.results[0].ok, true)
   assert.equal(ok.body.results[0].id, 'ws-proj-a')
+  assert.equal(ok.body.results[0].attached, 2, '成功挂上 2 条')
+  assert.equal(ok.body.results[0].attachFailed.length, 1, '挂不上的逐条上报，不吞')
+  assert.equal(ok.body.results[0].attachFailed[0].sessionId, 'zcode-bad')
+  assert.match(ok.body.results[0].attachFailed[0].error, /cwd 已失效/)
   assert.equal(ok.body.results[1].ok, false, '注册表抛错 → 真失败')
   assert.match(ok.body.results[1].error, /目录不存在/)
   // 目录已不存在：报 skipped（不是失败），且**根本不碰注册表** —— 这是「别每次登记都刷
@@ -241,10 +266,15 @@ test('workspaces：登记真实目录，目录已不存在 → skipped（不调�
   assert.match(ok.body.results[2].reason, /目录已不存在/)
   assert.equal(ok.body.results[2].error, undefined, 'skipped 不带 error，页面才能与真失败分开渲染')
 
+  // 兼容旧的 `directories: string[]`（只登记、不带会话）
+  const legacy = await call(handler, { path: `${API_PREFIX}/workspaces`, body: { directories: [realA] } })
+  assert.equal(legacy.body.results[0].ok, true)
+  assert.equal(legacy.body.results[0].attached, 0)
+
   // 缺参数 → 400；服务缺席 → ok:false 且说明原因（不许假装成功）
   assert.equal((await call(handler, { path: `${API_PREFIX}/workspaces`, body: {} })).status, 400)
   const noRegistry = createApiHandler({ dbPath: 'x', dshRoot: 'y' })
-  const degraded = await call(noRegistry, { path: `${API_PREFIX}/workspaces`, body: { directories: [realA] } })
+  const degraded = await call(noRegistry, { path: `${API_PREFIX}/workspaces`, body: { groups: [{ directory: realA, sessionIds: ['zcode-a1'] }] } })
   assert.equal(degraded.status, 200)
   assert.equal(degraded.body.results[0].ok, false)
   assert.match(degraded.body.results[0].error, /工作区服务不可用/)

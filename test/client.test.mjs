@@ -207,10 +207,32 @@ test('关掉预演后点「迁移选中」：按批迁移 + 自动登记工作�
   assert.ok(migrate, '没有发出 migrate 请求')
   assert.equal(migrate.body.dryRun, false)
   assert.deepEqual(migrate.body.ids, ['sess_a', 'sess_b'])
-  // 真迁之后自动把涉及的目录补登记成工作区（会话归组靠它）。
+  // 真迁之后必须把会话**挂进**工作区：只 create 出空工作区的话，会话还是留在「未分组」
+  // （用户实报「迁移后也没到工作区」）。所以这里断言发的是 groups + dsh 会话 id。
   const ws = calls.find((c) => c.action === 'workspaces')
-  assert.ok(ws, '真迁之后必须自动登记工作区')
-  assert.deepEqual(ws.body.directories, [CWD], '登记目录来自被迁会话的 directory')
+  assert.ok(ws, '真迁之后必须登记工作区')
+  assert.deepEqual(ws.body.groups, [{
+    directory: CWD,
+    sessionIds: ['zcode-sess_a', 'zcode-sess_b', 'zcode-sess_c'],
+  }], '按目录带上该目录下的 dsh 会话 id（含已迁移的，顺手修历史残留）')
+})
+
+test('「登记工作区」按钮也带会话 id（不只是建空工作区）', async () => {
+  const { calls, render, getTree } = await mount()
+  stubFetch(calls, { inspect: inspectPayload(), workspaces: { ok: true, results: [] } })
+
+  render()
+  await findButton(getTree(), '侦察').props.onClick()
+  render()
+  await findButton(getTree(), '登记工作区').props.onClick()
+  render()
+
+  const ws = calls.find((c) => c.action === 'workspaces')
+  assert.ok(ws, '没发出 workspaces 请求')
+  assert.deepEqual(ws.body.groups, [{
+    directory: CWD,
+    sessionIds: ['zcode-sess_a', 'zcode-sess_b', 'zcode-sess_c'],
+  }])
 })
 
 test('没勾任何会话就点迁移：只提示，不发请求', async () => {
