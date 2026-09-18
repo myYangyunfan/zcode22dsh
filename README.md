@@ -70,7 +70,7 @@ dsh plugin --profile web add /path/to/dsh-zcode-migrate
 
 装完**重启 dsh**，然后确认两半都到货：
 
-- 宿主半（工具/路由）：在会话里说「用 zcode 工具侦察一下」，模型应该能调 `zcode.inspect`；
+- 宿主半（工具/路由）：在会话里说「用 zcode 工具侦察一下」，模型应该能调 `zcode_inspect`；
 - 客户端半（设置页）：**设置 → zcode 迁移** 里能看到这个页面。
 
 只出现设置页、没有工具/命令，通常说明插件被当成「bundle 类」加载了 —— 见文末
@@ -197,7 +197,7 @@ dsh 的会话归组**不是**按会话头的 `cwd` 现算的，而是靠工作�
 | 登记结果里「跳过（目录已不存在）」很多 | 这些 zcode 会话指向的项目目录已被删除。要么不管（会话照样能用），要么把目录建回来再登记 |
 | 「迁移选中」点了没反应 / 报 `ids.map is not a function` | 老版本的 bug（`onClick` 直挂了处理函数），升级到 0.1.x 之后的版本即可 |
 | 「侦察」报读不到库 | zcode 库不在默认位置。用 `dbPath` 配置项指到实际路径 |
-| 想确认某个产物真能被 dsh 读 | 产物路径是 `~/.dsh/sessions/--<项目>--/<会话id>/session.jsonl.zstd`；用 `zcode.verify <路径>` 或 `node cli.mjs verify <路径>` 回读 |
+| 想确认某个产物真能被 dsh 读 | 产物路径是 `~/.dsh/sessions/--<项目>--/<会话id>/session.jsonl.zstd`；用 `zcode_verify <路径>` 或 `node cli.mjs verify <路径>` 回读 |
 | 设置页在、但工具/命令都没有 | 插件被当成 bundle 类加载了。见文末[内置注意事项](#内置注意事项改这个插件前必读)第 1 条 |
 
 设置页的数据全部走宿主侧 `/zcode-migrate/api/{inspect,migrate,verify,workspaces}`（客户端半不碰
@@ -209,9 +209,13 @@ dsh 的会话归组**不是**按会话头的 `cwd` 现算的，而是靠工作�
 
 | 工具 | 作用 |
 |---|---|
-| `zcode.inspect` | 只读侦察：库总量、按项目分布、待迁移清单、哪些已迁移过 |
-| `zcode.migrate` | 执行迁移（按会话幂等，支持 `dryRun`） |
-| `zcode.verify` | 回读一个产物，确认可被 dsh 解析 |
+| `zcode_inspect` | 只读侦察：库总量、按项目分布、待迁移清单、哪些已迁移过 |
+| `zcode_migrate` | 执行迁移（按会话幂等，支持 `dryRun`） |
+| `zcode_verify` | 回读一个产物，确认可被 dsh 解析 |
+
+> **工具名为什么是下划线**：模型 API 要求函数名匹配 `^[a-zA-Z0-9_-]+$`，带点的名字
+> （如 `zcode.inspect`）会让**整个请求** 400，表现是「本轮运行失败」、这一轮连消息都发不出去。
+> 0.1.1 起统一改成下划线写法。
 
 ### 斜杠命令
 
@@ -219,12 +223,12 @@ dsh 没有命令注册面，本插件用一段系统提示把 `/zcode` 前缀映
 
 ```
 /zcode                      → 列出命令清单
-/zcode inspect              → zcode.inspect
-/zcode migrate [dryRun]     → zcode.migrate
+/zcode inspect              → zcode_inspect
+/zcode migrate [dryRun]     → zcode_migrate
 /zcode migrate --cwd <路径>  → 只迁移某个项目
 /zcode migrate --ids <sess_a,sess_b>
 /zcode migrate --includeSubagents
-/zcode verify <路径>         → zcode.verify
+/zcode verify <路径>         → zcode_verify
 ```
 
 ### 命令行（不启动 dsh 也能用）

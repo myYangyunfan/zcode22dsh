@@ -65,15 +65,15 @@ test('apply registers the three tools with their behavior hints', () => {
   apply(ctx, {})
   assert.deepEqual(
     ctx.registered.map((tool) => tool.name).sort(),
-    ['zcode.inspect', 'zcode.migrate', 'zcode.verify'],
+    ['zcode_inspect', 'zcode_migrate', 'zcode_verify'],
   )
   const byName = Object.fromEntries(ctx.registered.map((tool) => [tool.name, tool]))
-  assert.equal(byName['zcode.inspect'].behavior, 'read')
-  assert.equal(byName['zcode.inspect'].readOnly, true)
-  assert.equal(byName['zcode.inspect'].destructive, false)
-  assert.equal(byName['zcode.migrate'].behavior, 'idempotent')
-  assert.equal(byName['zcode.migrate'].idempotent, true)
-  assert.equal(byName['zcode.verify'].behavior, 'read')
+  assert.equal(byName['zcode_inspect'].behavior, 'read')
+  assert.equal(byName['zcode_inspect'].readOnly, true)
+  assert.equal(byName['zcode_inspect'].destructive, false)
+  assert.equal(byName['zcode_migrate'].behavior, 'idempotent')
+  assert.equal(byName['zcode_migrate'].idempotent, true)
+  assert.equal(byName['zcode_verify'].behavior, 'read')
   for (const tool of ctx.registered) {
     assert.equal(typeof tool.description, 'string')
     assert.ok(tool.description.length > 10)
@@ -101,7 +101,7 @@ test('slashCommand: false skips the system-prompt section', () => {
 test('the rendered output of a tool is a text content block', () => {
   const ctx = mockContext()
   apply(ctx, {})
-  const tool = ctx.registered.find((entry) => entry.name === 'zcode.verify')
+  const tool = ctx.registered.find((entry) => entry.name === 'zcode_verify')
   const rendered = tool.output.render({}, { ok: true, eventCount: 3 })
   assert.equal(Array.isArray(rendered), true)
   assert.equal(rendered[0].type, 'text')
@@ -111,7 +111,7 @@ test('the rendered output of a tool is a text content block', () => {
 test('a tool surfaces failures as a structured payload instead of throwing', async () => {
   const ctx = mockContext()
   apply(ctx, {})
-  const verify = ctx.registered.find((entry) => entry.name === 'zcode.verify')
+  const verify = ctx.registered.find((entry) => entry.name === 'zcode_verify')
   const result = await verify.execute({ path: join(tmpdir(), 'definitely-not-here.jsonl.zstd') })
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'NOT_FOUND')
@@ -155,13 +155,13 @@ test('plugin config reaches the tools as defaults', async () => {
     const ctx = mockContext()
     apply(ctx, { dbPath, dshRoot: root })
 
-    const inspectTool = ctx.registered.find((entry) => entry.name === 'zcode.inspect')
+    const inspectTool = ctx.registered.find((entry) => entry.name === 'zcode_inspect')
     const inspected = await inspectTool.execute({})
     assert.equal(inspected.ok, true)
     assert.equal(inspected.selected, 1, 'config dbPath is used when the model omits it')
     assert.equal(inspected.dshRoot, root)
 
-    const migrateTool = ctx.registered.find((entry) => entry.name === 'zcode.migrate')
+    const migrateTool = ctx.registered.find((entry) => entry.name === 'zcode_migrate')
     const report = await migrateTool.execute({})
     assert.equal(report.migrated, 1)
     assert.ok(report.sessions[0].path.includes(projectKey('C:\\cfg')))

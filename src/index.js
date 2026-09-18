@@ -53,12 +53,12 @@ export const Config = Schema.object({
 export const SLASH_GUIDE = [
   '\n[zcode 会话迁移] 用户消息以 `/zcode` 开头时视为 zcode→dsh 迁移命令：直接调用对应 zcode.* 工具执行，用紧凑列表或表格汇报，不要寒暄。',
   '- `/zcode`（无参或 help）→ 列出本命令清单',
-  '- `/zcode inspect` → zcode.inspect（只读侦察：库总量、按项目分布、待迁移清单）',
-  '- `/zcode migrate [dryRun]` → zcode.migrate（dryRun 时只预演不写盘）',
+  '- `/zcode inspect` → zcode_inspect（只读侦察：库总量、按项目分布、待迁移清单）',
+  '- `/zcode migrate [dryRun]` → zcode_migrate（dryRun 时只预演不写盘）',
   '- `/zcode migrate --cwd <路径>` → 只迁移某个项目的会话',
   '- `/zcode migrate --ids <sess_id,...>` → 只迁移指定会话',
   '- `/zcode migrate --includeSubagents` → 连同子代理会话一起迁移',
-  '- `/zcode verify <路径>` → zcode.verify（回读产物确认可被 dsh 解析）',
+  '- `/zcode verify <路径>` → zcode_verify（回读产物确认可被 dsh 解析）',
   '',
 ].join('\n')
 
