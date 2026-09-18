@@ -193,7 +193,7 @@ node scripts/validate-with-dsh.mjs ~/.dsh/sessions
 ### 单元测试
 
 ```bash
-npm test        # 66 个测试，覆盖路径规则、帧编解码、事件映射、迁移编排、插件契约、设置页 HTTP 面
+npm test        # 70 个测试，覆盖路径规则、帧编解码、事件映射、迁移编排、插件契约、设置页 HTTP 面，以及设置页的真渲染 + 真点击
 ```
 
 测试用**自建的合成 zcode 数据库**，不依赖你机器上的真实数据。
